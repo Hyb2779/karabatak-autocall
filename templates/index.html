@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SIP Otomatik Arama Paneli</title>
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #0f1117; color: #e2e8f0; min-height: 100vh; }
+
+    header {
+      background: #1a1d27; border-bottom: 1px solid #2d3148;
+      padding: 16px 32px; display: flex; align-items: center; gap: 12px;
+    }
+    header h1 { font-size: 1.3rem; font-weight: 600; color: #a78bfa; }
+    .ncs-header-badge {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 0.72rem; color: #5b6272; letter-spacing: .03em;
+      margin-left: 12px; padding-left: 12px; border-left: 1px solid #2d3148;
+    }
+    .ncs-header-badge b { color: #a78bfa; font-weight: 700; }
+
+    .container {
+      display: grid; grid-template-columns: 380px 1fr;
+      gap: 24px; padding: 24px 32px; max-width: 1400px; margin: 0 auto;
+    }
+
+    .card {
+      background: #1a1d27; border: 1px solid #2d3148;
+      border-radius: 12px; padding: 20px; margin-bottom: 16px;
+    }
+    .card h2 {
+      font-size: 0.9rem; font-weight: 600; color: #94a3b8;
+      text-transform: uppercase; letter-spacing: .05em; margin-bottom: 16px;
+    }
+
+    label { display: block; font-size: 0.82rem; color: #94a3b8; margin-bottom: 4px; margin-top: 12px; }
+    input[type=text], input[type=password], input[type=number], textarea, select {
+      width: 100%; background: #0f1117; border: 1px solid #2d3148;
+      border-radius: 8px; color: #e2e8f0; padding: 8px 12px;
+      font-size: 0.88rem; outline: none; transition: border-color .2s;
+    }
+    input:focus, textarea:focus { border-color: #7c3aed; }
+    textarea { height: 110px; resize: vertical; font-family: monospace; }
+    .row { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+
+    .file-label {
+      display: flex; align-items: center; gap: 10px;
+      background: #0f1117; border: 1px dashed #2d3148; border-radius: 8px;
+      padding: 10px 14px; cursor: pointer; transition: border-color .2s;
+      font-size: 0.85rem; color: #94a3b8;
+    }
+    .file-label:hover { border-color: #7c3aed; color: #e2e8f0; }
+    input[type=file] { display: none; }
+    #file-name { color: #a78bfa; font-size: 0.82rem; }
+
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 20px; border-radius: 8px; border: none;
+      font-size: 0.88rem; font-weight: 600; cursor: pointer;
+      transition: opacity .2s, transform .1s;
+    }
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+    .btn-save    { background: #334155; color: #e2e8f0; width: 100%; justify-content: center; margin-top: 16px; }
+    .btn-start   { background: #7c3aed; color: #fff; }
+    .btn-pause   { background: #d97706; color: #fff; }
+    .btn-stop    { background: #dc2626; color: #fff; }
+    .btn-resume  { background: #059669; color: #fff; }
+    .btn-clear   { background: #1e293b; color: #94a3b8; font-size: 0.78rem; padding: 6px 12px; }
+
+    .actions { display: flex; gap: 8px; margin-bottom: 16px; align-items: center; flex-wrap: wrap; }
+
+    .status-bar {
+      display: flex; align-items: center; gap: 10px;
+      background: #0f1117; border: 1px solid #2d3148; border-radius: 8px;
+      padding: 10px 16px; margin-bottom: 16px; font-size: 0.88rem;
+    }
+    .dot { width: 10px; height: 10px; border-radius: 50%; background: #334155; transition: background .3s; }
+    .dot.running { background: #22c55e; box-shadow: 0 0 8px #22c55e88; animation: pulse 1.2s infinite; }
+    .dot.paused  { background: #f59e0b; }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+    #status-text { flex: 1; color: #94a3b8; }
+    #current-number { color: #a78bfa; font-weight: 600; }
+
+    .progress-bar-wrap {
+      background: #0f1117; border: 1px solid #2d3148; border-radius: 8px;
+      padding: 8px 12px; margin-bottom: 16px;
+    }
+    .progress-bar-bg { background: #1e293b; border-radius: 99px; height: 6px; margin-top: 6px; }
+    .progress-bar-fill { background: #7c3aed; height: 6px; border-radius: 99px; width: 0%; transition: width .3s; }
+
+    .results-wrap { overflow-y: auto; max-height: 200px; margin-bottom: 16px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.83rem; }
+    th { color: #64748b; text-align: left; padding: 6px 10px; border-bottom: 1px solid #2d3148; }
+    td { padding: 6px 10px; border-bottom: 1px solid #1e2235; }
+
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 99px; font-size: 0.75rem; font-weight: 600; }
+    .badge-done    { background: #14532d; color: #86efac; }
+    .badge-ans     { background: #1e3a5f; color: #93c5fd; }
+    .badge-no      { background: #451a03; color: #fdba74; }
+    .badge-busy    { background: #3b0764; color: #d8b4fe; }
+    .badge-err     { background: #450a0a; color: #fca5a5; }
+    .badge-stop    { background: #1c1917; color: #a8a29e; }
+
+    #log-box {
+      background: #0a0c14; border: 1px solid #2d3148; border-radius: 8px;
+      padding: 12px; height: 200px; overflow-y: auto;
+      font-family: monospace; font-size: 0.78rem; line-height: 1.6;
+    }
+    .log-info    { color: #94a3b8; }
+    .log-success { color: #22c55e; }
+    .log-warn    { color: #f59e0b; }
+    .log-error   { color: #ef4444; }
+
+    /* Geçmiş aramalar */
+    .history-wrap { overflow-y: auto; max-height: 180px; }
+
+    #toast {
+      position: fixed; bottom: 24px; right: 24px;
+      background: #1a1d27; border: 1px solid #2d3148; border-radius: 10px;
+      padding: 12px 20px; font-size: 0.85rem; color: #e2e8f0;
+      opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 99;
+    }
+    #toast.show { opacity: 1; }
+
+    .resume-banner {
+      display: none; background: #1e293b; border: 1px solid #d97706;
+      border-radius: 8px; padding: 10px 14px; margin-bottom: 12px;
+      font-size: 0.85rem; color: #fcd34d; align-items: center; gap: 10px;
+    }
+    .resume-banner.show { display: flex; }
+  </style>
+</head>
+<body>
+
+<header>
+  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="2">
+    <path d="M22 16.92v3a2 2 0 01-2.18 2A19.79 19.79 0 013.09 4.18 2 2 0 015.07 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L9.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/>
+  </svg>
+  <h1>SIP Otomatik Arama Paneli</h1>
+  <div class="ncs-header-badge">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#7c3aed" stroke-width="2.5">
+      <path d="M22 16.92v3a2 2 0 01-2.18 2A19.79 19.79 0 013.09 4.18 2 2 0 015.07 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L9.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/>
+    </svg>
+    <span>Powered by <b>NCS</b></span>
+  </div>
+  <div style="margin-left:auto;display:flex;gap:8px">
+    <a href="/change_password" style="font-size:0.82rem;color:#64748b;text-decoration:none;padding:6px 12px;border:1px solid #2d3148;border-radius:6px;">🔒 Şifre</a>
+    <a href="/logout" style="font-size:0.82rem;color:#64748b;text-decoration:none;padding:6px 12px;border:1px solid #2d3148;border-radius:6px;">⎋ Çıkış</a>
+  </div>
+</header>
+
+<div class="container">
+
+  <!-- SOL: Ayarlar -->
+  <div>
+    <form id="settings-form" action="/save" method="POST" enctype="multipart/form-data">
+      <div class="card">
+        <h2>SIP Bağlantısı</h2>
+        <label>Sunucu</label>
+        <input type="text" name="sip_server" value="{{ settings.sip_server }}" placeholder="sip.provider.com">
+        <label>Kullanıcı Adı</label>
+        <input type="text" name="sip_username" value="{{ settings.sip_username }}" placeholder="1001">
+        <label>Şifre</label>
+        <input type="password" name="sip_password" value="{{ settings.sip_password }}" placeholder="••••••••">
+        <label style="margin-top:12px;display:block;">2. Hat Kullanıcı Adı (opsiyonel)</label>
+        <input type="text" name="sip_username2" value="{{ settings.sip_username2 }}" placeholder="1043">
+        <label>2. Hat Şifre</label>
+        <input type="password" name="sip_password2" value="{{ settings.sip_password2 }}" placeholder="••••••••">
+        <label>Eşzamanlı Arama Sayısı</label>
+        <input type="number" name="concurrency" value="{{ settings.concurrency }}" min="1" max="60">
+      </div>
+
+      <div class="card">
+        <h2>Arama Ayarları</h2>
+        <label>Aranacak Numaralar (her satıra bir numara)</label>
+        <textarea name="numbers" placeholder="+905321234567&#10;+905329876543">{{ settings.numbers }}</textarea>
+
+        <label>Ses Dosyası (WAV / MP3)</label>
+        <label class="file-label" for="audio-input">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/>
+          </svg>
+          Dosya Seç
+          <span id="file-name">{{ settings.audio_file or 'Henüz seçilmedi' }}</span>
+        </label>
+        <input type="file" id="audio-input" name="audio_file" accept=".wav,.mp3">
+
+        <div class="row" style="margin-top:12px">
+          <div>
+            <label>Aramalar arası (sn)</label>
+            <input type="number" name="delay" value="{{ settings.delay }}" min="1" max="300">
+          </div>
+          <div>
+            <label>Ses öncesi (sn)</label>
+            <input type="number" name="wait_before_audio" value="{{ settings.wait_before_audio }}" min="0" max="30">
+          </div>
+          <div>
+            <label>Zil timeout (sn)</label>
+            <input type="number" name="ring_timeout" value="{{ settings.ring_timeout }}" min="5" max="120">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-save">💾 Kaydet</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- SAĞ: Kontrol -->
+  <div>
+    <div class="card">
+      <h2>Kontrol</h2>
+
+      <!-- Kaldığı yerden devam banner -->
+      <div class="resume-banner" id="resume-banner">
+        ⏸ Son arama <strong id="resume-number"></strong> numarasında durdu.
+        <button class="btn btn-resume" onclick="startCalls(true)" style="margin-left:auto;padding:6px 14px;font-size:0.8rem">Kaldığı Yerden Devam</button>
+      </div>
+
+      <div class="status-bar">
+        <div class="dot" id="dot"></div>
+        <span id="status-text">Beklemede</span>
+        <span id="current-number"></span>
+      </div>
+
+      <div class="progress-bar-wrap">
+        <div style="display:flex;justify-content:space-between;font-size:0.8rem;color:#64748b">
+          <span>İlerleme</span>
+          <span id="progress-text">0 / 0</span>
+        </div>
+        <div class="progress-bar-bg"><div class="progress-bar-fill" id="progress-fill"></div></div>
+      </div>
+
+      <div class="actions">
+        <button class="btn btn-start"  id="btn-start"  onclick="startCalls(false)">▶ Başlat</button>
+        <button class="btn btn-pause"  id="btn-pause"  onclick="pauseCalls()" disabled>⏸ Duraklat</button>
+        <button class="btn btn-stop"   id="btn-stop"   onclick="stopCalls()"  disabled>⏹ Durdur</button>
+      </div>
+
+      <h2 style="margin-bottom:10px">Bu Oturum Sonuçları</h2>
+      <div class="results-wrap">
+        <table>
+          <thead><tr><th>#</th><th>Numara</th><th>Durum</th><th>Saat</th></tr></thead>
+          <tbody id="results-body"></tbody>
+        </table>
+      </div>
+
+      <h2 style="margin-bottom:8px">Canlı Log</h2>
+      <div id="log-box"></div>
+    </div>
+
+    <!-- Geçmiş Aramalar -->
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+        <h2 style="margin:0">Geçmiş Aramalar</h2>
+        <button class="btn btn-clear" onclick="clearHistory()">🗑 Temizle</button>
+      </div>
+      <div class="history-wrap">
+        <table>
+          <thead><tr><th>Numara</th><th>Durum</th><th>Saat</th></tr></thead>
+          <tbody id="history-body">
+            {% for r in all_results[-50:]|reverse %}
+            <tr>
+              <td>{{ r.number }}</td>
+              <td><span class="badge {{ 'badge-done' if r.status == 'tamamlandı' else 'badge-ans' if r.status == 'cevaplandı' else 'badge-no' if r.status == 'cevapsız' else 'badge-busy' if r.status == 'meşgul' else 'badge-err' }}">{{ r.status }}</span></td>
+              <td>{{ r.time }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div id="toast"></div>
+
+<script>
+  const socket = io();
+  let totalNumbers = 0;
+  let doneCount = 0;
+  let lastStoppedIndex = {{ state.current_index }};
+  let lastStoppedNumber = "";
+
+  // Dosya adı göster
+  document.getElementById('audio-input').addEventListener('change', function() {
+    document.getElementById('file-name').textContent = this.files[0] ? this.files[0].name : 'Henüz seçilmedi';
+  });
+
+  // Socket olayları
+  socket.on('log', e => addLog(e));
+  socket.on('total', d => {
+    totalNumbers = d.total;
+    doneCount = d.start_index || 0;
+    updateProgress();
+  });
+  socket.on('current', d => {
+    document.getElementById('current-number').textContent = d.number;
+    doneCount = d.index;
+    updateProgress();
+  });
+  socket.on('result', d => {
+    doneCount = d.index + 1;
+    addResult(d, true);
+    updateProgress();
+  });
+  socket.on('stopped', d => {
+    setRunning(false, false);
+    document.getElementById('current-number').textContent = '';
+    if (d.index > 0) {
+      lastStoppedIndex = d.index;
+      showResumeBanner();
+    }
+  });
+  socket.on('paused', d => {
+    setPaused(d.paused);
+    if (d.paused) lastStoppedIndex = d.index;
+  });
+
+  function setRunning(running, paused) {
+    const dot = document.getElementById('dot');
+    const statusText = document.getElementById('status-text');
+    const btnStart = document.getElementById('btn-start');
+    const btnPause = document.getElementById('btn-pause');
+    const btnStop  = document.getElementById('btn-stop');
+
+    if (running && !paused) {
+      dot.className = 'dot running';
+      statusText.textContent = 'Çalışıyor';
+      btnStart.disabled = true;
+      btnPause.disabled = false;
+      btnPause.textContent = '⏸ Duraklat';
+      btnPause.className = 'btn btn-pause';
+      btnStop.disabled  = false;
+    } else if (running && paused) {
+      dot.className = 'dot paused';
+      statusText.textContent = 'Duraklatıldı';
+      btnStart.disabled = true;
+      btnPause.disabled = false;
+      btnPause.textContent = '▶ Devam Et';
+      btnPause.className = 'btn btn-resume';
+      btnStop.disabled  = false;
+    } else {
+      dot.className = 'dot';
+      statusText.textContent = 'Beklemede';
+      btnStart.disabled = false;
+      btnPause.disabled = true;
+      btnPause.textContent = '⏸ Duraklat';
+      btnPause.className = 'btn btn-pause';
+      btnStop.disabled  = true;
+    }
+  }
+
+  function setPaused(paused) {
+    setRunning(true, paused);
+  }
+
+  function updateProgress() {
+    const el = document.getElementById('progress-text');
+    const fill = document.getElementById('progress-fill');
+    if (totalNumbers > 0) {
+      el.textContent = `${doneCount} / ${totalNumbers}`;
+      fill.style.width = `${Math.round(doneCount / totalNumbers * 100)}%`;
+    }
+  }
+
+  function addLog(entry) {
+    const box = document.getElementById('log-box');
+    const div = document.createElement('div');
+    div.className = 'log-' + entry.level;
+    div.textContent = `[${entry.time}] ${entry.msg}`;
+    box.appendChild(div);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  const badgeMap = {
+    'tamamlandı': 'badge-done',
+    'cevaplandı': 'badge-ans',
+    'cevapsız':   'badge-no',
+    'meşgul':     'badge-busy',
+    'hata':       'badge-err',
+    'durduruldu': 'badge-stop',
+  };
+
+  function addResult(data, prepend) {
+    const tbody = document.getElementById('results-body');
+    const cls = badgeMap[data.status] || '';
+    const tr = document.createElement('tr');
+    const idx = (data.index !== undefined) ? data.index + 1 : '';
+    tr.innerHTML = `<td>${idx}</td><td>${data.number}</td><td><span class="badge ${cls}">${data.status}</span></td><td>${data.time}</td>`;
+    if (prepend) tbody.prepend(tr);
+    else tbody.appendChild(tr);
+
+    // Geçmiş tablosuna da ekle
+    const htbody = document.getElementById('history-body');
+    const htr = tr.cloneNode(true);
+    htbody.prepend(htr);
+  }
+
+  function showResumeBanner() {
+    const banner = document.getElementById('resume-banner');
+    const numbers = document.querySelector('textarea[name=numbers]').value.split('\n').filter(n => n.trim());
+    if (lastStoppedIndex < numbers.length) {
+      lastStoppedNumber = numbers[lastStoppedIndex].trim();
+      document.getElementById('resume-number').textContent = lastStoppedNumber + ' (' + (lastStoppedIndex+1) + '. sıra)';
+      banner.classList.add('show');
+    }
+  }
+
+  async function startCalls(resume) {
+    document.getElementById('resume-banner').classList.remove('show');
+    const resumeIndex = resume ? lastStoppedIndex : 0;
+    const formData = new FormData();
+    formData.append('resume_index', resumeIndex);
+    const res = await fetch('/start', { method: 'POST', body: formData });
+    const json = await res.json();
+    if (json.ok) {
+      setRunning(true, false);
+      if (!resume) {
+        document.getElementById('results-body').innerHTML = '';
+        document.getElementById('log-box').innerHTML = '';
+      }
+    } else {
+      showToast('⚠ ' + json.msg);
+    }
+  }
+
+  async function pauseCalls() {
+    const res = await fetch('/pause', { method: 'POST' });
+    const json = await res.json();
+    if (json.ok) {
+      setPaused(json.paused);
+      if (json.paused) lastStoppedIndex = json.index;
+    }
+  }
+
+  async function stopCalls() {
+    const res = await fetch('/stop', { method: 'POST' });
+    const json = await res.json();
+    if (json.ok) {
+      lastStoppedIndex = json.index;
+      setRunning(false, false);
+      showToast('Durduruldu. Kaldığı yerden devam edebilirsin.');
+      showResumeBanner();
+    }
+  }
+
+  async function clearHistory() {
+    await fetch('/clear_results', { method: 'POST' });
+    document.getElementById('history-body').innerHTML = '';
+    showToast('Geçmiş temizlendi.');
+  }
+
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    t.textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3500);
+  }
+
+  // Sayfa yüklenince mevcut durumu çek
+  fetch('/status').then(r => r.json()).then(data => {
+    totalNumbers = data.total || 0;
+    doneCount = data.current_index || 0;
+    if (data.running) setRunning(true, data.paused);
+    data.logs.forEach(e => addLog(e));
+    data.results.forEach(r => addResult(r, false));
+    updateProgress();
+  });
+</script>
+</body>
+</html>

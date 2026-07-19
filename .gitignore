@@ -1,0 +1,9 @@
+venv/
+__pycache__/
+*.pyc
+settings.json
+results.json
+uploads/
+*.bak
+*.bak-*
+app.py.bak

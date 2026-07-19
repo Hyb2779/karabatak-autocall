@@ -1,0 +1,16 @@
+[Unit]
+Description=SIP Otomatik Arama Paneli
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/autocall
+ExecStart=/opt/autocall/venv/bin/python app.py
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
